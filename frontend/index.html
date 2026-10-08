@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodeSense: inline code review</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<style>
+:root{--bg:#eef1f5;--panel:#fff;--ink:#18212d;--mute:#5b6676;--line:#d8dee7;--acc:#2457d6;--l:40%}
+@media (prefers-color-scheme:dark){:root{--bg:#11151b;--panel:#1a2029;--ink:#e6eaf0;--mute:#97a2b2;--line:#2c3541;--acc:#7da2ff;--l:62%}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "IBM Plex Sans",system-ui,sans-serif}
+.wrap{max-width:1000px;margin:0 auto;padding:20px 16px 48px}
+h1{margin:0;font-size:24px}
+.sub{color:var(--mute);margin:2px 0 14px}
+.tools{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px}
+.tools label,.tools .lb{color:var(--mute);font-size:13px}
+select,.btn2{font:inherit;font-size:13px;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:4px;padding:5px 8px;cursor:pointer}
+.go{margin-left:auto;background:var(--acc);color:#fff;border:0;border-radius:4px;padding:8px 18px;font:600 14px "IBM Plex Sans",sans-serif;cursor:pointer}
+@media (prefers-color-scheme:dark){.go{color:#0b1220}}
+.go:disabled{opacity:.6;cursor:wait}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.slider{display:flex;align-items:center;gap:8px}
+#stats{margin:14px 0 10px;display:none}
+#stats p{margin:0 0 6px;font-weight:600}
+#map{display:flex;gap:3px;height:22px}
+#map button{border:0;border-radius:3px;min-width:14px;cursor:pointer;background:hsl(var(--h) 60% var(--l));opacity:.9;padding:0}
+#map button.off{opacity:.35}
+.hint{color:var(--mute);font-size:12px;margin-top:4px}
+.panel{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.ph{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line);font-size:13px;color:var(--mute)}
+textarea{display:block;width:100%;min-height:420px;border:0;padding:14px;resize:vertical;background:transparent;color:var(--ink);font:13px/1.65 "IBM Plex Mono",monospace;tab-size:4;outline:none}
+#view{display:none;overflow-x:auto;padding:8px 0;font:13px/1.65 "IBM Plex Mono",monospace}
+.row{display:grid;grid-template-columns:48px 5px 1fr;min-width:max-content}
+.row.hot{background:color-mix(in srgb,var(--c) 11%,transparent)}
+.num{text-align:right;padding-right:10px;color:var(--mute);user-select:none}
+.bar{background:var(--c,transparent)}
+.code{white-space:pre;padding:0 14px}
+.badge{margin-left:18px;font:600 11px "IBM Plex Sans",sans-serif;padding:1px 8px;border-radius:10px;color:var(--c);border:1px solid var(--c);white-space:normal}
+.notewrap{grid-column:3;padding:6px 14px 12px;white-space:normal}
+.note{max-width:620px;border:1px solid var(--c);border-left-width:4px;border-radius:6px;background:var(--panel);padding:10px 12px;font:14px/1.5 "IBM Plex Sans",sans-serif;animation:in .25s ease-out}
+@keyframes in{from{opacity:0;transform:translateY(-4px)}}
+@media (prefers-reduced-motion:reduce){.note{animation:none}}
+.nh{display:flex;justify-content:space-between;gap:12px;margin-bottom:6px}
+.score{font-weight:600;color:var(--c)}
+.note ul{margin:0;padding:0;list-style:none}
+.note li{padding:6px 0;border-top:1px solid var(--line)}
+.note li em{display:block;color:var(--mute);font-style:normal;font-size:13px}
+.imp{float:right;font:500 12px "IBM Plex Mono",monospace;color:var(--mute)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chips span{font:12px "IBM Plex Mono",monospace;background:var(--bg);border-radius:3px;padding:1px 7px;color:var(--mute)}
+.msg{padding:10px 14px;color:var(--mute)}
+.err{color:#c8372d;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>CodeSense</h1>
+  <p class="sub">Paste Python. Get a pull-request style review: every risky function is marked in place, with the reasons and fixes.</p>
+
+  <div class="tools">
+    <label for="ex">Try an example</label>
+    <select id="ex"><option value="">Choose…</option><option value="risky">Risky file handling</option><option value="clean">Clean utilities</option><option value="complex">Complex logic</option></select>
+    <label class="btn2" for="file">Upload .py</label><input id="file" type="file" accept=".py,text/x-python" hidden>
+    <div class="slider"><label for="th">Flag functions scoring at least <b id="thv">0.50</b></label><input id="th" type="range" min="0.1" max="0.9" step="0.05" value="0.5"></div>
+    <button class="go" id="go" title="Ctrl+Enter">Review code</button>
+  </div>
+
+  <div id="stats"><p id="sum"></p><div id="map" role="list"></div><div class="hint">Each block is one function. Click a block to jump to it. Move the slider to change what counts as flagged without re-running.</div></div>
+
+  <div class="panel">
+    <div class="ph"><span id="ptitle">Your code</span><button class="btn2" id="edit" hidden>Edit code</button></div>
+    <textarea id="code" spellcheck="false" aria-label="Python code to review"></textarea>
+    <div id="view" aria-live="polite"></div>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const EX = {
+risky: `def load_config(path, defaults=[]):
+    f = open(path)
+    try:
+        data = f.read()
+        for line in data.split(","):
+            if line:
+                if "=" in line:
+                    defaults.append(line)
+    except:
+        pass
+    return defaults
+
+
+def add(a, b):
+    return a + b
+`,
+clean: `def average(values):
+    if not values:
+        return 0
+    return sum(values) / len(values)
+
+
+def read_text(path):
+    with open(path) as f:
+        return f.read()
+`,
+complex: `def price(order, user, region, promo, tax, ship):
+    total = 0
+    for item in order:
+        if item.stock > 0:
+            if user.vip:
+                if promo and promo.active:
+                    if item.category in promo.categories:
+                        total += item.cost * 0.8
+                    else:
+                        total += item.cost * 0.9
+                else:
+                    total += item.cost * 0.95
+            elif region == "EU" and not item.exempt or tax:
+                total += item.cost * 1.2
+            else:
+                total += item.cost
+    try:
+        return total + ship
+    except Exception:
+        return total
+`};
+let DATA = null, CODE = "";
+const esc = s => s.replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const hue = s => Math.round(150 - 148 * s);
+const col = s => `--c:hsl(${hue(s)} 60% var(--l))`;
+const sentence = r => r.metrics;
+
+$("code").value = EX.risky;
+$("th").oninput = () => { $("thv").textContent = (+$("th").value).toFixed(2); if (DATA) render(); };
+$("ex").onchange = e => { if (e.target.value) { $("code").value = EX[e.target.value]; setMode(false); } };
+$("file").onchange = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { $("code").value = r.result; setMode(false); }; r.readAsText(f); };
+$("edit").onclick = () => setMode(false);
+document.addEventListener("keydown", e => { if (e.ctrlKey && e.key === "Enter") $("go").click(); });
+
+function setMode(review) {
+  $("view").style.display = review ? "block" : "none";
+  $("code").style.display = review ? "none" : "block";
+  $("edit").hidden = !review;
+  $("stats").style.display = review ? "block" : "none";
+  $("ptitle").textContent = review ? "Reviewed code" : "Your code";
+  if (!review) DATA = null;
+}
+
+function render() {
+  const th = +$("th").value, lines = CODE.split("\n"), R = DATA.results;
+  const owner = new Array(lines.length).fill(-1);
+  R.forEach((r, i) => { for (let n = r.line; n <= r.end_line; n++) {
+    const o = owner[n - 1]; if (o < 0 || (r.end_line - r.line) < (R[o].end_line - R[o].line)) owner[n - 1] = i; } });
+  const flagged = R.map(r => r.score >= th), nf = flagged.filter(Boolean).length;
+  $("sum").textContent = R.length ? `${nf} of ${R.length} functions flagged` : "No functions found";
+  $("map").innerHTML = R.map((r, i) => `<button class="${flagged[i] ? "" : "off"}" style="--h:${hue(r.score)};flex:${Math.max(r.end_line - r.line + 1, 2)}" title="${esc(r.name)}(): ${r.score.toFixed(2)}" aria-label="Jump to ${esc(r.name)}" data-i="${i}"></button>`).join("");
+  document.querySelectorAll("#map button").forEach(b => b.onclick = () => $("fn" + b.dataset.i).scrollIntoView({block: "center", behavior: matchMedia("(prefers-reduced-motion:reduce)").matches ? "auto" : "smooth"}));
+  if (!R.length) { $("view").innerHTML = `<div class="msg">Add at least one function (def ...) to review.</div>`; return; }
+  let html = "";
+  lines.forEach((text, k) => {
+    const n = k + 1, o = owner[k], r = R[o], hot = o >= 0 && flagged[o];
+    const style = o >= 0 ? col(r.score) : "";
+    const starts = R.map((x, i) => i).filter(i => R[i].line === n);
+    const badge = starts.map(i => `<span class="badge" style="${col(R[i].score)}">${flagged[i] ? "bug-prone" : "clean"} ${R[i].score.toFixed(2)}</span>`).join("");
+    html += `<div class="row${hot ? " hot" : ""}" style="${style}" ${starts.length ? `id="fn${starts[0]}"` : ""}><span class="num">${n}</span><span class="bar" ${o >= 0 && !hot ? 'style="opacity:.45"' : ""}></span><span class="code">${esc(text) || " "}${badge}</span></div>`;
+    R.forEach((x, i) => { if (x.end_line === n && flagged[i]) html += note(x); });
+  });
+  $("view").innerHTML = html;
+}
+
+function note(r) {
+  const m = r.metrics;
+  const why = r.reasons.length ? r.reasons.map(x => `<li><span class="imp" title="Score drop if this were fixed">-${x.impact.toFixed(2)}</span>${esc(x.text)}<em>Fix: ${esc(x.fix)}</em></li>`).join("")
+    : `<li>No single pattern dominates. The score comes from several small factors together.</li>`;
+  return `<div class="row" style="${col(r.score)}"><span class="num"></span><span class="bar"></span><div class="notewrap"><div class="note"><div class="nh"><b>${esc(r.name)}() looks bug-prone</b><span class="score">${r.score.toFixed(2)}</span></div><ul>${why}</ul>
+  <div class="chips"><span>complexity ${m.cyclomatic}</span><span>nesting ${m.max_nesting}</span><span>${m.loc} lines</span><span>${m.n_params} params</span></div></div></div></div>`;
+}
+
+$("go").onclick = async () => {
+  const btn = $("go"), code = $("code").value;
+  if (!code.trim()) { setMode(true); $("view").innerHTML = `<div class="msg err">Paste or upload some Python code first.</div>`; $("stats").style.display = "none"; return; }
+  btn.disabled = true; btn.textContent = "Reviewing…";
+  const slow = setTimeout(() => btn.textContent = "Waking the server…", 3000);
+  try {
+    const res = await fetch("/api/analyze", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({code, threshold: 0.05})});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Request failed");
+    DATA = data; CODE = code; setMode(true); render();
+  } catch (e) {
+    setMode(true); $("stats").style.display = "none"; $("view").innerHTML = `<div class="msg err">${esc(e.message)}</div>`;
+  } finally { clearTimeout(slow); btn.disabled = false; btn.textContent = "Review code"; }
+};
+</script>
+</body>
+</html>
